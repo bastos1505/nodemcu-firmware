@@ -28,7 +28,7 @@ The second value returned is the extended reset cause. Values are:
 
 In general, the extended reset cause supercedes the raw code. The raw code is kept for backwards compatibility only. For new applications it is highly recommended to use the extended reset cause instead.
 
-In case of extended reset cause 3 (exception reset), additional values are returned containing the crash information. These are, in order, EXCCAUSE, EPC1, EPC2, EPC3, EXCVADDR, and DEPC.
+In case of extended reset cause 3 (exception reset), additional values are returned containing the crash information. These are, in order, [EXCCAUSE](https://arduino-esp8266.readthedocs.io/en/latest/exception_causes.html), EPC1, EPC2, EPC3, EXCVADDR, and DEPC.
 
 #### Syntax
 `node.bootreason()`
@@ -87,15 +87,14 @@ dofile("hello.lc")
 
 Enters deep sleep mode, wakes up when timed out.
 
-The maximum sleep time is 4294967295us, ~71 minutes. This is an SDK limitation.
-Firmware from before 05 Jan 2016 have a maximum sleeptime of ~35 minutes.
-
-!!! note "Note:"
+Theoretical maximum deep sleep duration can be found with [`node.dsleepMax()`](#nodedsleepmax). ["Max deep sleep for ESP8266"](https://thingpulse.com/max-deep-sleep-for-esp8266/) claims the realistic maximum be around 3.5h.
+ 
+!!! caution
 
     This function can only be used in the condition that esp8266 PIN32(RST) and PIN8(XPD_DCDC aka GPIO16) are connected together. Using sleep(0) will set no wake up timer, connect a GPIO to pin RST, the chip will wake up by a falling-edge on pin RST.
 
 #### Syntax
-`node.dsleep(us, option)`
+`node.dsleep(us, option, instant)`
 
 #### Parameters
  - `us` number (integer) or `nil`, sleep time in micro second. If `us == 0`, it will sleep forever. If `us == nil`, will not set sleep time.
@@ -104,9 +103,10 @@ Firmware from before 05 Jan 2016 have a maximum sleeptime of ~35 minutes.
 	- 0, init data byte 108 is valuable
 	- \> 0, init data byte 108 is valueless
 	- 0, RF_CAL or not after deep-sleep wake up, depends on init data byte 108
-	- 1, RF_CAL after deep-sleep wake up, there will belarge current
+	- 1, RF_CAL after deep-sleep wake up, there will be large current
 	- 2, no RF_CAL after deep-sleep wake up, there will only be small current
 	- 4, disable RF after deep-sleep wake up, just like modem sleep, there will be the smallest current
+ - `instant` number (integer) or `nil`. If present and non-zero, the chip will enter Deep-sleep immediately and will not wait for the Wi-Fi core to be shutdown.
 
 #### Returns
 `nil`
@@ -123,6 +123,42 @@ node.dsleep(1000000, 4)
 node.dsleep(nil,4)
 ```
 
+#### See also
+- [`wifi.suspend()`](wifi.md#wifisuspend)
+- [`wifi.resume()`](wifi.md#wifiresume)
+- [`node.sleep()`](#nodesleep)
+- [`node.dsleepMax()`](#nodedsleepmax)
+
+## node.dsleepMax()
+
+Returns the current theoretical maximum deep sleep duration.
+
+!!! caution
+
+	While it is possible to specify a longer sleep time than the theoretical maximum sleep duration, it is not recommended to exceed this maximum. In tests documented at ["Max deep sleep for ESP8266"](https://thingpulse.com/max-deep-sleep-for-esp8266/) the device never woke up again if the specified sleep time was beyond `dsleepMax()`.
+
+
+!!! note
+
+	This theoretical maximum is dependent on ambient temperature: lower temp = shorter sleep duration, higher temp = longer sleep duration
+
+#### Syntax
+`node.dsleepMax()`
+
+#### Parameters
+ none
+ 
+#### Returns
+`max_duration`
+
+#### Example
+```lua
+node.dsleep(node.dsleepMax())
+```
+
+#### See also
+- [`node.dsleep()`](#nodedsleep)
+
 ## node.flashid()
 
 Returns the flash chip ID.
@@ -135,6 +171,40 @@ none
 
 #### Returns
 flash ID (number)
+
+## node.flashsize()
+
+Returns the flash chip size in bytes. On 4MB modules like ESP-12 the return value is 4194304 = 4096KB.
+
+#### Syntax
+`node.flashsize()`
+
+#### Parameters
+none
+
+#### Returns
+flash size in bytes (integer)
+
+## node.getcpufreq()
+
+Get the current CPU Frequency.
+
+#### Syntax
+`node.getcpufreq()`
+
+#### Parameters
+none
+
+#### Returns
+Current CPU frequency (number)
+
+#### Example
+```lua
+do
+  local cpuFreq = node.getcpufreq()
+  print("The current CPU frequency is " .. cpuFreq .. " MHz")
+end
+```
 
 ## node.heap()
 
@@ -179,7 +249,7 @@ print("NodeMCU "..majorVer.."."..minorVer.."."..devVer)
 
 Submits a string to the Lua interpreter. Similar to `pcall(loadstring(str))`, but without the single-line limitation.
 
-!!! note "Note:"
+!!! attention
 
     This function only has an effect when invoked from a callback. Using it directly on the console **does not work**.
 
@@ -200,59 +270,11 @@ sk:on("receive", function(conn, payload) node.input(payload) end)
 #### See also
 [`node.output()`](#nodeoutput)
 
-## node.key() --deprecated
-
-Defines action to take on button press (on the old devkit 0.9), button connected to GPIO 16.
-
-This function is only available if the firmware was compiled with DEVKIT_VERSION_0_9 defined.
-
-#### Syntax
-`node.key(type, function())`
-
-#### Parameters
-  - `type`: type is either string "long" or "short". long: press the key for 3 seconds, short: press shortly(less than 3 seconds)
-  - `function`: user defined function which is called when key is pressed. If nil, remove the user defined function. Default function: long: change LED blinking rate,  short: reset chip
-
-#### Returns
-`nil`
-
-#### Example
-```lua
-node.key("long", function() print('hello world') end)
-```
-#### See also
-[`node.led()`](#nodeled-deprecated)
-
-## node.led() --deprecated
-
-Sets the on/off time for the LED (on the old devkit 0.9), with the LED connected to GPIO16, multiplexed with [`node.key()`](#nodekey-deprecated).
-
-This function is only available if the firmware was compiled with DEVKIT_VERSION_0_9 defined.
-
-#### Syntax
-`node.led(low, high)`
-
-#### Parameters
-  - `low` LED off time, LED keeps on when low=0. Unit: milliseconds, time resolution: 80~100ms
-  - `high` LED on time. Unit: milliseconds, time resolution: 80~100ms
-
-#### Returns
-`nil`
-
-#### Example
-```lua
--- turn led on forever.
-node.led(0)
-```
-
-#### See also
-[`node.key()`](#nodekey-deprecated)
-
 ## node.output()
 
 Redirects the Lua interpreter output to a callback function. Optionally also prints it to the serial console.
 
-!!! note "Note:"
+!!! caution
 
     Do **not** attempt to `print()` or otherwise induce the Lua interpreter to produce output from within the callback function. Doing so results in infinite recursion, and leads to a watchdog-triggered restart.
 
@@ -271,7 +293,7 @@ Redirects the Lua interpreter output to a callback function. Optionally also pri
 function tonet(str)
   sk:send(str)
 end
-node.output(tonet, 1)  -- serial also get the lua output.
+node.output(tonet, 1)  -- serial also get the Lua output.
 ```
 
 ```lua
@@ -315,7 +337,9 @@ none
 
 ## node.restore()
 
-Restores system configuration to defaults using the SDK function `system_restore()`, which doesn't document precisely what it erases/restores.
+Restores system configuration to defaults using the SDK function `system_restore()`, which is described in the documentation as:
+
+> Reset default settings of following APIs: `wifi_station_set_auto_connect`, `wifi_set_phy_mode`, `wifi_softap_set_config` related, `wifi_station_set_config` related, `wifi_set_opmode`, and APs’ information recorded by `#define	AP_CACHE`.
 
 #### Syntax
 `node.restore()`
@@ -349,6 +373,76 @@ target CPU frequency (number)
 ```lua
 node.setcpufreq(node.CPU80MHZ)
 ```
+
+
+## node.sleep()
+
+Put NodeMCU in light sleep mode to reduce current consumption. 
+
+* NodeMCU can not enter light sleep mode if wifi is suspended.
+* All active timers will be suspended and then resumed when NodeMCU wakes from sleep. 
+
+!!! attention
+    This is disabled by default. Modify `PMSLEEP_ENABLE` in `app/include/user_config.h` to enable it.
+
+#### Syntax
+<!---`node.sleep({wake_pin[, duration, int_type, resume_cb, preserve_mode]})`--->
+`node.sleep({wake_pin[, int_type, resume_cb, preserve_mode]})`
+
+#### Parameters
+<!--- timed light_sleep currently does not work, the 'duration' parameter is here as a place holder---> 
+<!--- * `duration` Sleep duration in microseconds(μs). If a sleep duration of `0` is specified, suspension will be indefinite (Range: 0 or 50000 - 268435454 μs (0:4:28.000454))--->
+
+* `wake_pin` 1-12, pin to attach wake interrupt to. Note that pin 0(GPIO 16) does not support interrupts. 
+    <!---* If sleep duration is indefinite, `wake_pin` must be specified--->
+    * Please refer to the [`GPIO module`](gpio.md) for more info on the pin map.
+* `int_type` type of interrupt that you would like to wake on. (Optional, Default: `node.INT_LOW`)
+    * valid interrupt modes:
+        * `node.INT_UP`   Rising edge
+        * `node.INT_DOWN` Falling edge
+        * `node.INT_BOTH` Both edges
+        * `node.INT_LOW`  Low level
+        * `node.INT_HIGH` High level
+* `resume_cb` Callback to execute when WiFi wakes from suspension. (Optional)
+* `preserve_mode` preserve current WiFi mode through node sleep. (Optional, Default: true)  
+    * If true, Station and StationAP modes will automatically reconnect to previously configured Access Point when NodeMCU resumes.
+    * If false, discard WiFi mode and leave NodeMCU in `wifi.NULL_MODE`. WiFi mode will be restored to original mode on restart.
+
+#### Returns
+- `nil`
+
+#### Example
+
+```lua
+
+--Put NodeMCU in light sleep mode indefinitely with resume callback and wake interrupt
+ cfg={}
+ cfg.wake_pin=3
+ cfg.resume_cb=function() print("WiFi resume") end
+
+ node.sleep(cfg)
+
+--Put NodeMCU in light sleep mode with interrupt, resume callback and discard WiFi mode
+ cfg={}
+ cfg.wake_pin=3 --GPIO0
+ cfg.resume_cb=function() print("WiFi resume") end
+ cfg.preserve_mode=false
+
+ node.sleep(cfg)
+```
+<!---
+--Put NodeMCU in light sleep mode for 10 seconds with resume callback
+ cfg={}
+ cfg.duration=10*1000*1000
+ cfg.resume_cb=function() print("WiFi resume") end
+
+ node.sleep(cfg)
+--->
+
+#### See also
+- [`wifi.suspend()`](wifi.md#wifisuspend)
+- [`wifi.resume()`](wifi.md#wifiresume)
+- [`node.dsleep()`](#nodedsleep)
 
 ## node.stripdebug()
 
@@ -399,6 +493,33 @@ Nothing
 node.osprint(true)
 ```
 
+## node.random()
+
+This behaves like math.random except that it uses true random numbers derived from the ESP8266 hardware. It returns uniformly distributed
+numbers in the required range. It also takes care to get large ranges correct. 
+
+It can be called in three ways. Without arguments in the floating point build of NodeMCU, it returns a random real number with uniform distribution in the interval [0,1). 
+When called with only one argument, an integer n, it returns an integer random number x such that 1 <= x <= n. For instance, you can simulate the result of a die with random(6). 
+Finally, random can be called with two integer arguments, l and u, to get a pseudo-random integer x such that l <= x <= u.
+
+#### Syntax
+`node.random()`
+`node.random(n)`
+`node.random(l, u)`
+
+#### Parameters
+- `n` the number of distinct integer values that can be returned -- in the (inclusive) range 1 .. `n`
+- `l` the lower bound of the range
+- `u` the upper bound of the range
+
+#### Returns
+The random number in the appropriate range. Note that the zero argument form will always return 0 in the integer build.
+
+#### Example
+```lua
+print ("I rolled a", node.random(6))
+```
+
 # node.egc module
 
 ## node.egc.setmode()
@@ -413,7 +534,7 @@ provides more detailed information on the EGC.
 - `mode`
 	- `node.egc.NOT_ACTIVE` EGC inactive, no collection cycle will be forced in low memory situations
 	- `node.egc.ON_ALLOC_FAILURE` Try to allocate a new block of memory, and run the garbage collector if the allocation fails. If the allocation fails even after running the garbage collector, the allocator will return with error. 
-	- `node.egc.ON_MEM_LIMIT` Run the garbage collector when the memory used by the Lua script goes beyond an upper `limit`. If the upper limit can't be satisfied even after running the garbage collector, the allocator will return with error.
+	- `node.egc.ON_MEM_LIMIT` Run the garbage collector when the memory used by the Lua script goes beyond an upper `limit`. If the upper limit can't be satisfied even after running the garbage collector, the allocator will return with error. If the given limit is negative, it is interpreted as the desired amount of heap which should be left available. Whenever the free heap (as reported by `node.heap()` falls below the requested limit, the garbage collector will be run.
 	- `node.egc.ALWAYS` Run the garbage collector before each memory allocation. If the allocation fails even after running the garbage collector, the allocator will return with error. This mode is very efficient with regards to memory savings, but it's also the slowest.
 - `level` in the case of `node.egc.ON_MEM_LIMIT`, this specifies the memory limit.
   
@@ -424,6 +545,23 @@ provides more detailed information on the EGC.
 
 `node.egc.setmode(node.egc.ALWAYS, 4096)  -- This is the default setting at startup.`
 `node.egc.setmode(node.egc.ON_ALLOC_FAILURE) -- This is the fastest activeEGC mode.`
+`node.egc.setmode(node.egc.ON_MEM_LIMIT, 30720)  -- Only allow the Lua runtime to allocate at most 30k, collect garbage if limit is about to be hit`
+`node.egc.setmode(node.egc.ON_MEM_LIMIT, -6144)  -- Try to keep at least 6k heap available for non-Lua use (e.g. network buffers)`
+
+
+## node.egc.meminfo()
+
+Returns memory usage information for the Lua runtime.
+
+####Syntax
+`total_allocated, estimated_used = node.egc.meminfo()`
+
+#### Parameters
+None.
+
+#### Returns
+ - `total_allocated` The total number of bytes allocated by the Lua runtime. This is the number which is relevant when using the `node.egc.ON_MEM_LIMIT` option with positive limit values.
+ - `estimated_used` This value shows the estimated usage of the allocated memory.
 
 # node.task module
 

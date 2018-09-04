@@ -1,13 +1,14 @@
 #ifndef __DHCPS_H__
 #define __DHCPS_H__
 
+#include "lwipopts.h"
+
 #define USE_DNS
 
 typedef struct dhcps_state{
         sint16_t state;
 } dhcps_state;
 
-//#define DHCP_OPTIONS_HARDCODE
 // ����dhcpclient�Զ����һ��DHCP msg�ṹ��
 typedef struct dhcps_msg {
         uint8_t op, htype, hlen, hops;
@@ -20,13 +21,7 @@ typedef struct dhcps_msg {
         uint8_t chaddr[16];
         uint8_t sname[64];
         uint8_t file[128];
-
-
-#ifdef DHCP_OPTIONS_HARDCODE
-        uint8_t options[532]; // 312
-#else
-        uint8_t *options;
-#endif
+        uint8_t options[312];
 }dhcps_msg;
 
 #ifndef LWIP_OPEN_SRC
@@ -43,10 +38,23 @@ enum dhcps_offer_option{
 };
 #endif
 
+typedef enum {
+    DHCPS_TYPE_DYNAMIC,
+    DHCPS_TYPE_STATIC
+} dhcps_type_t;
+
+typedef enum {
+    DHCPS_STATE_ONLINE,
+    DHCPS_STATE_OFFLINE
+} dhcps_state_t;
+
 struct dhcps_pool{
 	struct ip_addr ip;
 	uint8 mac[6];
 	uint32 lease_timer;
+    dhcps_type_t type;
+    dhcps_state_t state;
+
 };
 
 typedef struct _list_node{

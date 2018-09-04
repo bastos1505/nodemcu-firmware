@@ -9,7 +9,7 @@
 #include "c_stdio.h"
 #include "c_stdlib.h"
 #include "c_string.h"
-#include "flash_fs.h"
+#include "user_interface.h"
 #include "user_version.h"
 #include "driver/readline.h"
 #include "driver/uart.h"
@@ -128,7 +128,7 @@ static int docall (lua_State *L, int narg, int clear) {
 
 
 static void print_version (lua_State *L) {
-  lua_pushliteral (L, "\n" NODE_VERSION " build " BUILD_DATE " powered by " LUA_RELEASE " on SDK ");
+  lua_pushliteral (L, "\n\t\tPlugStation 2018/07/24\n" NODE_VERSION " Powered by " LUA_RELEASE " on SDK ");
   lua_pushstring (L, SDK_VERSION);
   lua_concat (L, 2);
   const char *msg = lua_tostring (L, -1);
@@ -468,8 +468,11 @@ int lua_main (int argc, char **argv) {
 
 void lua_handle_input (bool force)
 {
-  if (gLoad.L && (force || readline (&gLoad)))
+  while (gLoad.L && (force || readline (&gLoad)))
+  {
     dojob (&gLoad);
+    force = false;
+  }
 }
 
 void donejob(lua_Load *load){
@@ -599,11 +602,12 @@ static bool readline(lua_Load *load){
         {
           /* Get a empty line, then go to get a new line */
           c_puts(load->prmt);
+          continue;
         } else {
           load->done = 1;
           need_dojob = true;
+          break;
         }
-        continue;
       }
 
       /* other control character or not an acsii character */

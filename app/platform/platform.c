@@ -14,6 +14,8 @@
 #include "driver/uart.h"
 #include "driver/sigma_delta.h"
 
+#define INTERRUPT_TYPE_IS_LEVEL(x)   ((x) >= GPIO_PIN_INTR_LOLEVEL)
+
 #ifdef GPIO_INTERRUPT_ENABLE
 static task_handle_t gpio_task_handle;
 
@@ -31,6 +33,27 @@ struct gpio_hook {
 static struct gpio_hook platform_gpio_hook;
 #endif
 #endif
+
+static const int uart_bitrates[] = {
+    BIT_RATE_300,
+    BIT_RATE_600,
+    BIT_RATE_1200,
+    BIT_RATE_2400,
+    BIT_RATE_4800,
+    BIT_RATE_9600,
+    BIT_RATE_19200,
+    BIT_RATE_31250,
+    BIT_RATE_38400,
+    BIT_RATE_57600,
+    BIT_RATE_74880,
+    BIT_RATE_115200,
+    BIT_RATE_230400,
+    BIT_RATE_256000,
+    BIT_RATE_460800,
+    BIT_RATE_921600,
+    BIT_RATE_1843200,
+    BIT_RATE_3686400
+};
 
 int platform_init()
 {
@@ -82,6 +105,7 @@ static void NO_INTR_CODE set_gpio_no_interrupt(uint8 pin, uint8_t push_pull) {
                    GPIO_REG_READ(GPIO_PIN_ADDR(GPIO_ID_PIN(pnum))) |
                    GPIO_PIN_PAD_DRIVER_SET(GPIO_PAD_DRIVER_ENABLE));      //enable open drain;
   }
+
   ETS_GPIO_INTR_ENABLE();
 }
 
@@ -130,12 +154,15 @@ int platform_gpio_mode( unsigned pin, unsigned mode, unsigned pull )
 
     case PLATFORM_GPIO_INPUT:
       GPIO_DIS_OUTPUT(pin_num[pin]);
-      /* run on */
+      set_gpio_no_interrupt(pin, TRUE);
+      break;
     case PLATFORM_GPIO_OUTPUT:
       set_gpio_no_interrupt(pin, TRUE);
+      GPIO_REG_WRITE(GPIO_ENABLE_W1TS_ADDRESS, BIT(pin_num[pin]));
       break;
     case PLATFORM_GPIO_OPENDRAIN:
       set_gpio_no_interrupt(pin, FALSE);
+      GPIO_REG_WRITE(GPIO_ENABLE_W1TS_ADDRESS, BIT(pin_num[pin]));
       break;
 
 #ifdef GPIO_INTERRUPT_ENABLE
@@ -184,6 +211,7 @@ int platform_gpio_read( unsigned pin )
 static void ICACHE_RAM_ATTR platform_gpio_intr_dispatcher (void *dummy){
   uint32 j=0;
   uint32 gpio_status = GPIO_REG_READ(GPIO_STATUS_ADDRESS);
+  uint32 now = system_get_time();
   UNUSED(dummy);
 
 #ifdef GPIO_INTERRUPT_HOOK_ENABLE
@@ -204,13 +232,29 @@ static void ICACHE_RAM_ATTR platform_gpio_intr_dispatcher (void *dummy){
     if (gpio_status&1) {
       int i = pin_num_inv[j];
       if (pin_int_type[i]) {
-        //disable interrupt
-        gpio_pin_intr_state_set(GPIO_ID_PIN(j), GPIO_PIN_INTR_DISABLE);
+        uint16_t diff = pin_counter[i].seen ^ pin_counter[i].reported;
+
+        pin_counter[i].seen = 0x7fff & (pin_counter[i].seen + 1);
+
+        if (INTERRUPT_TYPE_IS_LEVEL(pin_int_type[i])) {
+          //disable interrupt
+          gpio_pin_intr_state_set(GPIO_ID_PIN(j), GPIO_PIN_INTR_DISABLE);
+        }
         //clear interrupt status
         GPIO_REG_WRITE(GPIO_STATUS_W1TC_ADDRESS, BIT(j));
-        uint32 level = 0x1 & GPIO_INPUT_GET(GPIO_ID_PIN(j));
-	task_post_high (gpio_task_handle, (i<<1) + level);
-	// We re-enable the interrupt when we execute the callback
+
+        if (diff == 0 || diff & 0x8000) {
+          uint32 level = 0x1 & GPIO_INPUT_GET(GPIO_ID_PIN(j));
+	  if (!task_post_high (gpio_task_handle, (now << 8) + (i<<1) + level)) {
+            // If we fail to post, then try on the next interrupt
+            pin_counter[i].seen |= 0x8000;
+          }
+          // We re-enable the interrupt when we execute the callback (if level)
+        }
+      } else {
+        // this is an unexpected interrupt so shut it off for now
+        gpio_pin_intr_state_set(GPIO_ID_PIN(j), GPIO_PIN_INTR_DISABLE);
+        GPIO_REG_WRITE(GPIO_STATUS_W1TC_ADDRESS, BIT(j));
       }
     }
   }
@@ -307,7 +351,7 @@ int platform_gpio_register_intr_hook(uint32_t bits, platform_hook_function hook)
 #endif // GPIO_INTERRUPT_HOOK_ENABLE
 
 /*
- * Initialise GPIO interrupt mode. Optionally in RAM because interrupts are dsabled
+ * Initialise GPIO interrupt mode. Optionally in RAM because interrupts are disabled
  */
 void NO_INTR_CODE platform_gpio_intr_init( unsigned pin, GPIO_INT_TYPE type )
 {
@@ -340,6 +384,7 @@ uint32_t platform_uart_setup( unsigned id, uint32_t baud, int databits, int pari
     case BIT_RATE_4800:
     case BIT_RATE_9600:
     case BIT_RATE_19200:
+    case BIT_RATE_31250:
     case BIT_RATE_38400:
     case BIT_RATE_57600:
     case BIT_RATE_74880:
@@ -408,6 +453,64 @@ uint32_t platform_uart_setup( unsigned id, uint32_t baud, int databits, int pari
   uart_setup(id);
 
   return baud;
+}
+
+void platform_uart_get_config(unsigned id, uint32_t *baudp, uint32_t *databitsp, uint32_t *parityp, uint32_t *stopbitsp) {
+  UartConfig config =  uart_get_config(id);
+  int i;
+
+  int offset = config.baut_rate;
+
+  for (i = 0; i < sizeof(uart_bitrates) / sizeof(uart_bitrates[0]); i++) {
+    int diff = config.baut_rate - uart_bitrates[i];
+
+    if (diff < 0) {
+      diff = -diff;
+    }
+
+    if (diff < offset) {
+       offset = diff;
+       *baudp = uart_bitrates[i];
+    }
+  }
+
+  switch( config.data_bits )
+  {
+    case FIVE_BITS:
+      *databitsp = 5;
+      break;
+    case SIX_BITS:
+      *databitsp = 6;
+      break;
+    case SEVEN_BITS:
+      *databitsp = 7;
+      break;
+    case EIGHT_BITS:
+    default:
+      *databitsp = 8;
+      break;
+  }
+
+  switch (config.stop_bits)
+  {
+    case ONE_HALF_STOP_BIT:
+      *stopbitsp = PLATFORM_UART_STOPBITS_1_5;
+      break;
+    case TWO_STOP_BIT:
+      *stopbitsp = PLATFORM_UART_STOPBITS_2;
+      break;
+    default:
+      *stopbitsp = PLATFORM_UART_STOPBITS_1;
+      break;
+  }
+
+  if (config.exist_parity == STICK_PARITY_DIS) {
+    *parityp = PLATFORM_UART_PARITY_NONE;
+  } else if (config.parity == EVEN_BITS) {
+    *parityp = PLATFORM_UART_PARITY_EVEN;
+  } else {
+    *parityp = PLATFORM_UART_PARITY_ODD;
+  }
 }
 
 // if set=1, then alternate serial output pins are used. (15=rx, 13=tx)
@@ -612,7 +715,7 @@ void platform_sigma_delta_set_prescale( uint8_t prescale )
   sigma_delta_set_prescale_target( prescale, -1 );
 }
 
-void platform_sigma_delta_set_target( uint8_t target )
+void ICACHE_RAM_ATTR platform_sigma_delta_set_target( uint8_t target )
 {
     sigma_delta_set_prescale_target( -1, target );
 }
@@ -671,9 +774,11 @@ int platform_i2c_recv_byte( unsigned id, int ack ){
 
 // *****************************************************************************
 // SPI platform interface
-uint32_t platform_spi_setup( uint8_t id, int mode, unsigned cpol, unsigned cpha, uint32_t clock_div)
+uint32_t platform_spi_setup( uint8_t id, int mode, unsigned cpol, unsigned cpha, uint32_t clock_div )
 {
   spi_master_init( id, cpol, cpha, clock_div );
+  // all platform functions assume LSB order for MOSI & MISO buffer
+  spi_mast_byte_order( id, SPI_ORDER_LSB );
   return 1;
 }
 
@@ -696,22 +801,39 @@ spi_data_type platform_spi_send_recv( uint8_t id, uint8_t bitlen, spi_data_type 
   return spi_mast_get_miso( id, 0, bitlen );
 }
 
-int platform_spi_set_mosi( uint8_t id, uint16_t offset, uint8_t bitlen, spi_data_type data )
+int platform_spi_blkwrite( uint8_t id, size_t len, const uint8_t *data )
 {
-  if (offset + bitlen > 512)
-    return PLATFORM_ERR;
+  while (len > 0) {
+    size_t chunk_len = len > 64 ? 64 : len;
 
-  spi_mast_set_mosi( id, offset, bitlen, data );
+    spi_mast_blkset( id, chunk_len * 8, data );
+    spi_mast_transaction( id, 0, 0, 0, 0, chunk_len * 8, 0, 0 );
+
+    data = &(data[chunk_len]);
+    len -= chunk_len;
+  }
 
   return PLATFORM_OK;
 }
 
-spi_data_type platform_spi_get_miso( uint8_t id, uint16_t offset, uint8_t bitlen )
+int platform_spi_blkread( uint8_t id, size_t len, uint8_t *data )
 {
-  if (offset + bitlen > 512)
-    return 0;
+  uint8_t mosi_idle[64];
 
-  return spi_mast_get_miso( id, offset, bitlen );
+  os_memset( (void *)mosi_idle, 0xff, len > 64 ? 64 : len );
+
+  while (len > 0 ) {
+    size_t chunk_len = len > 64 ? 64 : len;
+
+    spi_mast_blkset( id, chunk_len * 8, mosi_idle );
+    spi_mast_transaction( id, 0, 0, 0, 0, chunk_len * 8, 0, -1 );
+    spi_mast_blkget( id, chunk_len * 8, data );
+
+    data = &(data[chunk_len]);
+    len -= chunk_len;
+  }
+
+  return PLATFORM_OK;
 }
 
 int platform_spi_transaction( uint8_t id, uint8_t cmd_bitlen, spi_data_type cmd_data,
@@ -815,4 +937,9 @@ uint32_t platform_flash_mapped2phys (uint32_t mapped_addr)
   bool b1 = (cache_ctrl & CACHE_FLASH_MAPPED1) ? 1 : 0;
   uint32_t meg = (b1 << 1) | b0;
   return mapped_addr - INTERNAL_FLASH_MAPPED_ADDRESS + meg * 0x100000;
+}
+
+void* platform_print_deprecation_note( const char *msg, const char *time_frame)
+{
+  c_printf( "Warning, deprecated API! %s. It will be removed %s. See documentation for details.\n", msg, time_frame );
 }

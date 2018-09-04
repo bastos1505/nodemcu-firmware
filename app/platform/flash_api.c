@@ -10,65 +10,33 @@
 
 uint32_t flash_detect_size_byte(void)
 {
+    // enable operations on whole physical flash, SDK might have restricted
+    // the flash size already
+    extern SpiFlashChip * flashchip;
+    uint32 orig_chip_size = flashchip->chip_size;
+    flashchip->chip_size = FLASH_SIZE_16MBYTE;
+
 #define FLASH_BUFFER_SIZE_DETECT 32
     uint32_t dummy_size = FLASH_SIZE_256KBYTE;
     uint8_t data_orig[FLASH_BUFFER_SIZE_DETECT] ICACHE_STORE_ATTR = {0};
     uint8_t data_new[FLASH_BUFFER_SIZE_DETECT] ICACHE_STORE_ATTR = {0};
-    if (SPI_FLASH_RESULT_OK == flash_safe_read(0, (uint32 *)data_orig, FLASH_BUFFER_SIZE_DETECT))
+    if (SPI_FLASH_RESULT_OK == flash_read(0, (uint32 *)data_orig, FLASH_BUFFER_SIZE_DETECT))
     {
         dummy_size = FLASH_SIZE_256KBYTE;
         while ((dummy_size < FLASH_SIZE_16MBYTE) &&
-                (SPI_FLASH_RESULT_OK == flash_safe_read(dummy_size, (uint32 *)data_new, FLASH_BUFFER_SIZE_DETECT)) &&
+                (SPI_FLASH_RESULT_OK == flash_read(dummy_size, (uint32 *)data_new, FLASH_BUFFER_SIZE_DETECT)) &&
                 (0 != os_memcmp(data_orig, data_new, FLASH_BUFFER_SIZE_DETECT))
               )
         {
             dummy_size *= 2;
         }
     };
+
+    // revert temporary setting
+    flashchip->chip_size = orig_chip_size;
+
     return dummy_size;
 #undef FLASH_BUFFER_SIZE_DETECT
-}
-
-uint32_t flash_safe_get_size_byte(void)
-{
-    static uint32_t flash_size = 0;
-    if (flash_size == 0)
-    {
-        flash_size = flash_detect_size_byte();
-    }
-    return flash_size;
-}
-
-uint16_t flash_safe_get_sec_num(void)
-{
-    return (flash_safe_get_size_byte() / (SPI_FLASH_SEC_SIZE));
-}
-
-SpiFlashOpResult flash_safe_read(uint32 src_addr, uint32 *des_addr, uint32 size)
-{
-    SpiFlashOpResult result = SPI_FLASH_RESULT_ERR;
-    FLASH_SAFEMODE_ENTER();
-    result = spi_flash_read(src_addr, (uint32 *) des_addr, size);
-    FLASH_SAFEMODE_LEAVE();
-    return result;
-}
-
-SpiFlashOpResult flash_safe_write(uint32 des_addr, uint32 *src_addr, uint32 size)
-{
-    SpiFlashOpResult result = SPI_FLASH_RESULT_ERR;
-    FLASH_SAFEMODE_ENTER();
-    result = spi_flash_write(des_addr, src_addr, size);
-    FLASH_SAFEMODE_LEAVE();
-    return result;
-}
-
-SpiFlashOpResult flash_safe_erase_sector(uint16 sec)
-{
-    SpiFlashOpResult result = SPI_FLASH_RESULT_ERR;
-    FLASH_SAFEMODE_ENTER();
-    result = spi_flash_erase_sector(sec);
-    FLASH_SAFEMODE_LEAVE();
-    return result;
 }
 
 SPIFlashInfo flash_rom_getinfo(void)
@@ -117,6 +85,18 @@ uint32_t flash_rom_get_size_byte(void)
         case SIZE_32MBIT_8M_8M:
             // 32Mbit, 4MByte
             flash_size = 4 * 1024 * 1024;
+            break;
+        case SIZE_32MBIT_16M_16M:
+            // 32Mbit, 4MByte
+            flash_size = 4 * 1024 * 1024;
+            break;
+        case SIZE_64MBIT:
+            // 64Mbit, 8MByte
+            flash_size = 8 * 1024 * 1024;
+            break;
+        case SIZE_128MBIT:
+            // 128Mbit, 16MByte
+            flash_size = 16 * 1024 * 1024;
             break;
         default:
             // Unknown flash size, fall back mode.
@@ -184,18 +164,16 @@ bool flash_rom_set_size_byte(uint32_t size)
         flash_size = SIZE_32MBIT;
         flash_rom_set_size_type(flash_size);
         break;
-        /*
     case 8 * 1024 * 1024:
         // 64Mbit, 8MByte
-        flash_size = SIZE_16MBIT_8M_8M;
+        flash_size = SIZE_64MBIT;
         flash_rom_set_size_type(flash_size);
         break;
     case 16 * 1024 * 1024:
         // 128Mbit, 16MByte
-        flash_size = SIZE_32MBIT_8M_8M;
+        flash_size = SIZE_128MBIT;
         flash_rom_set_size_type(flash_size);
         break;
-        */
     default:
         // Unknown flash size.
         result = false;

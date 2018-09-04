@@ -11,7 +11,7 @@ Setup I²C address and read/write mode for the next transfer.
 
 #### Parameters
 - `id` always 0
-- `device_addr` device address
+- `device_addr` 7-bit device address, remember that [in I²C `device_addr` represents the upper 7 bits](http://www.nxp.com/documents/user_manual/UM10204.pdf#page=13) followed by a single `direction` bit
 - `direction` `i2c.TRANSMITTER` for writing mode , `i2c. RECEIVER` for reading mode
 
 #### Returns
@@ -112,14 +112,14 @@ Send an I²C stop condition.
 [i2c.read()](#i2cread)
 
 ## i2c.write()
-Write data to I²C bus. Data items can be multiple numbers, strings or lua tables.
+Write data to I²C bus. Data items can be multiple numbers, strings or Lua tables.
 
 ####Syntax
 `i2c.write(id, data1[, data2[, ..., datan]])`
 
 ####Parameters
 - `id` always 0
-- `data` data can be numbers, string or lua table.
+- `data` data can be numbers, string or Lua table.
 
 #### Returns
 `number` number of bytes written

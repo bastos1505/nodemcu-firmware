@@ -500,7 +500,7 @@ tcp_listen_input(struct tcp_pcb_listen *pcb)
     /* For incoming segments with the ACK flag set, respond with a
        RST. */
     LWIP_DEBUGF(TCP_RST_DEBUG, ("tcp_listen_input: ACK in LISTEN, sending reset\n"));
-    tcp_rst(ackno + 1, seqno + tcplen,
+    tcp_rst(ackno, seqno + tcplen,
       ip_current_dest_addr(), ip_current_src_addr(),
       tcphdr->dest, tcphdr->src);
   } else if (flags & TCP_SYN) {//�յ�SYN����
@@ -511,8 +511,11 @@ tcp_listen_input(struct tcp_pcb_listen *pcb)
       return ERR_ABRT;
     }
 #endif /* TCP_LISTEN_BACKLOG */
-    for(pactive_pcb = tcp_active_pcbs; pactive_pcb != NULL; pactive_pcb = pactive_pcb->next)
-    	active_pcb_num ++;
+    for(pactive_pcb = tcp_active_pcbs; pactive_pcb != NULL; pactive_pcb = pactive_pcb->next){
+    	if (pactive_pcb->state == ESTABLISHED){
+    		active_pcb_num ++;
+    	}
+    }
     if (active_pcb_num == MEMP_NUM_TCP_PCB){
     	LWIP_DEBUGF(TCP_DEBUG, ("tcp_listen_input: exceed the number of active TCP connections\n"));
     	TCP_STATS_INC(tcp.memerr);
@@ -717,8 +720,9 @@ tcp_process(struct tcp_pcb *pcb)
         pcb->rtime = -1;
       else {
         pcb->rtime = 0;
-        pcb->nrtx = 0;
+//        pcb->nrtx = 0;
       }
+      pcb->nrtx = 0;
 
       tcp_seg_free(rseg);
 
