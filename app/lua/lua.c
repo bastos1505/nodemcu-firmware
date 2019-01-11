@@ -128,7 +128,7 @@ static int docall (lua_State *L, int narg, int clear) {
 
 
 static void print_version (lua_State *L) {
-  lua_pushliteral (L, "\n\t\tPlugStation 2018/07/24\n" NODE_VERSION " Powered by " LUA_RELEASE " on SDK ");
+  lua_pushliteral (L, "\n\t\tPlugfield " BUILD_DATE " " NODE_VERSION " Powered by " LUA_RELEASE " on SDK ");
   lua_pushstring (L, SDK_VERSION);
   lua_concat (L, 2);
   const char *msg = lua_tostring (L, -1);

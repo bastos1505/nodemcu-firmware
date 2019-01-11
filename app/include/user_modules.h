@@ -9,7 +9,7 @@
 
 // #define LUA_USE_BUILTIN_OS			// for os.xxx(), not work
 //#define LUA_USE_BUILTIN_DEBUG
-#define LUA_USE_BUILTIN_DEBUG_MINIMAL // for debug.getregistry() and debug.traceback()
+//#define LUA_USE_BUILTIN_DEBUG_MINIMAL // for debug.getregistry() and debug.traceback()
 
 #ifndef LUA_CROSS_COMPILER
 

@@ -73,6 +73,8 @@ const char *HTTP_ANSWER[]= {"HTTP/1.1 20","HTTP/1.1 30","HTTP/1.1 40","HTTP/1.1 
 const char *IP_ANS[] 	= {"INITIAL", "GPRSACT", "CONNECT"};
 const char *GPRS_A[]	={"\r\nOK\r\n","\r\n+CME ERROR"};
 
+char ReadEnable = 0;
+
 int gprs_Attach(lua_State *L);
 
 double atof(char *IN)
@@ -198,7 +200,6 @@ int i = 0;
 			if( i >= c_strlen(MSG_TRUE) || i >= c_strlen(MSG_FALSE) )
 			{
 				milisec(1);
-				//if( c_strcmp(MSG_TRUE, HTTP_OK) != 0 )
 				if( STRCMP((char*)MSG_TRUE, (char*)HTTP_OK) != 0 )
 				{
 					if( c_strstr(ret,MSG_TRUE) != NULL )
@@ -273,7 +274,6 @@ int min_sz = 0;
 		{
 			if( ret[i] == 0 )
 				i--;
-
 			i++;
 			if( i >= min_sz )
 			{
@@ -700,17 +700,21 @@ static int gprs_readTimeStamp( lua_State* L )
 int timeout = luaL_checkinteger(L, 1)*1000000;
 uint8_t result = 3;
 char *ret;
-char tm[10];
+
 	if( gprs_StartSocket(L) == 1 )
 	{
 		result = 4;
 		if( gprs_SendSocket(L,"GET") == 1 )
 		{
-			if( (ret = readCommand(NULL,"}\r\n","}\r\n","{\"time\":","}\r\n",L)) != NULL )
+			//if( (ret = readCommand(NULL,"}\r\n","}\r\n","{\"time\":","}\r\n",L)) != NULL )
+			if( (ret = readCommand(NULL,"}\r\n","}\r\n","{","}\r\n",L)) != NULL )
 			{
-				memcpy(tm,ret,10);
+				char saida[512];
+				memset(saida,0,512);
+				c_memcpy(saida,ret,c_strlen(ret));
 				sendCommand((char*)CIPCLOSE, MSG_OK, MSG_NOK, strlen(CIPCLOSE), timeout/10);
-				lua_pushlstring(L,tm, 10);
+				//lua_pushlstring(L,tm, 10);
+				lua_pushlstring(L,saida, c_strlen(saida));
 				lua_pushinteger(L,0);
 				return 2;
 			}else
@@ -844,20 +848,22 @@ int j = 0;
 return (char)i;
 }
 
+
 /*
-	 * $GPGGA,180857.000,2524.83983,S,04917.42591,W,1,03,3.1,0.0,M,,M,,0000*47
-	 * $GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47
-	 * $GPGGA,,,,,,0,00,,,M,,M,,0000*66
+ *      0       1          2     3      4     5 6 7  8    9   10  11 12 13 14
+	 $GNGGA,121820.000,2524.7126,S,04917.5765,W,1,8,1.51,983.0,M,0.0,M,,*73
 */
 int parse_gps(char *position, double *LAT, double *LONG, double *ALT, double *DOP)
 {
 char *ptrEnd;
 char *ptrStart;
 char splited[15][12];
+
 	if( (ptrStart = c_strstr(position,GPSRDRESP)) != NULL)
 	{
-		ptrEnd = ptrStart + strlen(ptrStart) - 1;
+		//ptrEnd = ptrStart + strlen(ptrStart) - 1;
 		c_memset(splited,0,180);
+
 		if( split_pos(ptrStart,&splited[0]) != 0 )
 		{
 			if( splited[2][0] != 0 && splited[4][0] != 0 && splited[9][0] != 0)
@@ -881,10 +887,7 @@ char splited[15][12];
 					return 4;
 				}
 			}
-
 		}
-
-
 	}
 	return 0;
 }
@@ -892,7 +895,7 @@ char splited[15][12];
 static int gprs_getlocation( lua_State* L )
 {
 size_t len;
-uint32_t TIMEOUT	= luaL_checkinteger(L, 1);
+//uint32_t timeout	= luaL_checkinteger(L, 1)*1000;
 uint32_t period		= luaL_checkinteger(L, 3);
 char *position;
 double LAT	= 0.0f;
@@ -912,24 +915,19 @@ int ret = 0;
 		$GPRMC,180857.000,A,2524.83983,S,04917.42591,W,0.70,315.11,120617,,,A*69
 		$GPVTG,315.11,T,,M,0.70,N,1.30,K,A*3F
 
-		+GPSRD:$GNGGA,121820.000,2524.7126,S,04917.5765,W,1,8,1.51,983.0,M,0.0,M,,*73
-		$GPGSA,A,3,01,22,03,31,14,18,11,26,,,,,2.83,1.51,2.39*0E
-		$BDGSA,A,3,,,,,,,,,,,,,2.83,1.51,2.39*17
-		$GPGSV,4,1,13,01,75,279,39,18,62,356,24,22,60,172,42,11,50,314,25*70
-		$GPGSV,4,2,13,03,45,206,40,33,42,057,,31,36,128,45,14,17,135,36*77
-		$GPGSV,4,3,13,09,16,286,14,26,11,069,27,17,07,240,,16,06,044,*73
-		$GPGSV,4,4,13,08,06,347,*45
-		$BDGSV,1,1,01,14,,,33*6C
-		$GNRMC,121820.000,A,2524.7126,S,04917.5765,W,0.013,18.87,270718,,,A*71
-		$GNVTG,18.87,T,,M,0.013,N,0.024,K,A*11
-		$GNACC,16.1*7C
 	 * */
-	//if( (position = readCommand(GPSRD, "$GPRMC", MSG_OK, GPSRDLOCAL, EOL, L)) != NULL )
-	memset(cmd,0,15);
-	c_sprintf(cmd,"%s=%d",GPSRD,period);
-	if( (position = readCommand(cmd, MSG_OK, MSG_OK, GPSRDLOCAL, EOL, L)) != NULL )
+	if (ReadEnable == 0)
 	{
+		memset(cmd,0,15);
+		c_sprintf(cmd,"%s=%d",GPSRD,period);
+		if( sendCommonCommand(L,cmd) == 1)
+			ReadEnable = 1;
+	}
 
+	//if( sendCommonCommand(L,cmd) == 1)
+
+	if( (position = readCommand(NULL, "$GNACC", "$GNACC", GPSRDLOCAL, EOL, L)) != NULL )
+	{
 		ret = parse_gps(position, &LAT, &LONG, &ALT, &DOP);
 		if( ret ==  4 )
 		{
@@ -948,6 +946,7 @@ int ret = 0;
 			return 4;  // 4 é o número de valores a serem retornados
 		}
 	}
+
 
 	return 0;
 }
